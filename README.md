@@ -1,5 +1,6 @@
 # sonarr-mcp
 
+Part of the [arr-mcps](https://github.com/SavageCore/arr-mcps) collection.
 MCP server exposing [Sonarr](https://sonarr.tv)'s v3 REST API
 ([OpenAPI 3.0.0](https://sonarr.tv/docs/api/)) as tools, so an LLM can read
 and manage a Sonarr instance: series, episodes, episode files, the download
