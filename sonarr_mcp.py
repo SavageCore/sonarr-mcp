@@ -1,26 +1,33 @@
 """MCP server exposing Sonarr's v3 REST API (OpenAPI 3.0.0) as tools.
 
-One tool per endpoint, generated from the vendored spec at
-tests/data/sonarr_openapi.json (develop HEAD
-e7caf8fbaa8e7b9dff48ce26b476ebcad7fd7324).
-Full coverage: every JSON-producing endpoint under /api/v3 plus GET /ping
-(binary/text endpoints - media covers and raw log files - are excluded).
+Full coverage of every JSON-producing endpoint under /api/v3 plus GET /ping
+(binary/text endpoints - media covers and raw log files - are excluded), but
+exposed as ~15 resource-scoped *portmanteau* tools instead of one tool per
+endpoint. Each portmanteau tool (e.g. sonarr_queue, sonarr_media_library)
+takes an `operation` enum plus an `arguments` dict; see AGENTS.md for the
+rationale (a 200+-tool server blows the MCP context budget on session start).
+
+The vendored spec at tests/data/sonarr_openapi.json (develop HEAD
+e7caf8fbaa8e7b9dff48ce26b476ebcad7fd7324) still generates one async function
+per endpoint into `_TOOL_REGISTRY` - keep it in sync with the spec (see
+AGENTS.md). Those functions are no longer registered as individual MCP
+tools; `_GROUPS` below buckets them by resource, and `_register_group` wraps
+each bucket in a single dispatching tool that calls the right function by
+name. Nothing about the endpoint functions themselves changes - grouping is
+purely a registration-time concern.
 
 Auth is the X-Api-Key header, generated in Sonarr > Settings > General >
-Security. GET endpoints are marked readOnlyHint=True; POST/PUT writes are
-readOnlyHint=False; DELETE endpoints additionally set destructiveHint=True so
-clients can warn before calling them. Bodies are passed as opaque dicts/lists.
-
-Tools are built at import time from the `_TOOL_REGISTRY` table below: one
-async closure per entry, registered through FastMCP's Tool.from_function. The
-registry is generated from the spec; keep it in sync with the vendored file
-(see AGENTS.md). build_client points at the origin with no path suffix so
+Security. A group tool is marked readOnlyHint=True only when every operation
+in it is a GET; mixed groups carry no hints (writes still get a `WRITE:` /
+`DESTRUCTIVE:` note in their operation's doc line). Bodies are passed as
+opaque dicts/lists. build_client points at the origin with no path suffix so
 httpx joins the fully-qualified paths (including /ping) correctly.
 """
 
+import inspect
 import os
 import sys
-from typing import Any
+from typing import Any, Literal
 from urllib.parse import quote
 
 import httpx
@@ -78,6 +85,264 @@ def _omit(params: dict[str, Any]) -> dict[str, Any]:
     """Drop keys whose values are empty/None so the API's defaults apply."""
     return {k: v for k, v in params.items() if v not in ("", None)}
 
+
+# Resource groups for portmanteau registration. Every _TOOL_REGISTRY name
+# must appear in exactly one group - see test_all_registry_names_grouped.
+_GROUPS: dict[str, tuple[str, ...]] = {
+    "sonarr_profiles_formats": (
+        'sonarr_bulk_delete_customformat',
+        'sonarr_bulk_update_customformat',
+        'sonarr_create_autotagging',
+        'sonarr_create_customfilter',
+        'sonarr_create_customformat',
+        'sonarr_create_delayprofile',
+        'sonarr_create_languageprofile',
+        'sonarr_create_qualityprofile',
+        'sonarr_create_releaseprofile',
+        'sonarr_delete_autotagging',
+        'sonarr_delete_customfilter',
+        'sonarr_delete_customformat',
+        'sonarr_delete_delayprofile',
+        'sonarr_delete_languageprofile',
+        'sonarr_delete_qualityprofile',
+        'sonarr_delete_releaseprofile',
+        'sonarr_get_autotagging',
+        'sonarr_get_customfilter',
+        'sonarr_get_customformat',
+        'sonarr_get_delayprofile',
+        'sonarr_get_language',
+        'sonarr_get_languageprofile',
+        'sonarr_get_qualitydefinition',
+        'sonarr_get_qualitydefinition_limits',
+        'sonarr_get_qualityprofile',
+        'sonarr_get_releaseprofile',
+        'sonarr_list_autotagging',
+        'sonarr_list_autotagging_schema',
+        'sonarr_list_customfilter',
+        'sonarr_list_customformat',
+        'sonarr_list_customformat_schema',
+        'sonarr_list_delayprofile',
+        'sonarr_list_language',
+        'sonarr_list_languageprofile',
+        'sonarr_list_languageprofile_schema',
+        'sonarr_list_qualitydefinition',
+        'sonarr_list_qualityprofile',
+        'sonarr_list_qualityprofile_schema',
+        'sonarr_list_releaseprofile',
+        'sonarr_reorder_delayprofile',
+        'sonarr_update_autotagging',
+        'sonarr_update_customfilter',
+        'sonarr_update_customformat',
+        'sonarr_update_delayprofile',
+        'sonarr_update_languageprofile',
+        'sonarr_update_quality_definitions',
+        'sonarr_update_qualitydefinition',
+        'sonarr_update_qualityprofile',
+        'sonarr_update_releaseprofile',
+    ),
+    "sonarr_config": (
+        'sonarr_get_config_downloadclient',
+        'sonarr_get_config_downloadclient_by_id',
+        'sonarr_get_config_host',
+        'sonarr_get_config_host_by_id',
+        'sonarr_get_config_importlist',
+        'sonarr_get_config_importlist_by_id',
+        'sonarr_get_config_indexer',
+        'sonarr_get_config_indexer_by_id',
+        'sonarr_get_config_mediamanagement',
+        'sonarr_get_config_mediamanagement_by_id',
+        'sonarr_get_config_naming',
+        'sonarr_get_config_naming_by_id',
+        'sonarr_get_config_ui',
+        'sonarr_get_config_ui_by_id',
+        'sonarr_get_localization',
+        'sonarr_get_localization_language',
+        'sonarr_list_config_naming_examples',
+        'sonarr_list_localization',
+        'sonarr_list_update',
+        'sonarr_update_config_downloadclient',
+        'sonarr_update_config_host',
+        'sonarr_update_config_importlist',
+        'sonarr_update_config_indexer',
+        'sonarr_update_config_mediamanagement',
+        'sonarr_update_config_naming',
+        'sonarr_update_config_ui',
+    ),
+    "sonarr_media_library": (
+        'sonarr_add_series',
+        'sonarr_bulk_delete_episodefile',
+        'sonarr_bulk_delete_series',
+        'sonarr_bulk_edit_episodefiles',
+        'sonarr_bulk_update_episodefile',
+        'sonarr_bulk_update_series',
+        'sonarr_commit_manual_import',
+        'sonarr_delete_episodefile',
+        'sonarr_delete_series',
+        'sonarr_get_episode',
+        'sonarr_get_episodefile',
+        'sonarr_get_parse',
+        'sonarr_get_rename',
+        'sonarr_get_series',
+        'sonarr_get_series_folder',
+        'sonarr_import_series',
+        'sonarr_list_episode',
+        'sonarr_list_episodefile',
+        'sonarr_list_manualimport',
+        'sonarr_list_series',
+        'sonarr_lookup_series',
+        'sonarr_monitor_episode',
+        'sonarr_update_episode',
+        'sonarr_update_episodefile',
+        'sonarr_update_season_pass',
+        'sonarr_update_series',
+    ),
+    "sonarr_system_commands": (
+        'sonarr_delete_command',
+        'sonarr_delete_system_backup',
+        'sonarr_get_command',
+        'sonarr_get_health',
+        'sonarr_get_system_routes',
+        'sonarr_get_system_routes_duplicate',
+        'sonarr_get_system_status',
+        'sonarr_get_system_task',
+        'sonarr_get_system_task_by_id',
+        'sonarr_list_command',
+        'sonarr_list_log',
+        'sonarr_list_log_file',
+        'sonarr_list_log_file_update',
+        'sonarr_list_system_backup',
+        'sonarr_ping',
+        'sonarr_restart_sonarr',
+        'sonarr_restore_backup',
+        'sonarr_restore_backup_upload',
+        'sonarr_run_command',
+        'sonarr_shutdown_sonarr',
+    ),
+    "sonarr_import_lists": (
+        'sonarr_create_importlist',
+        'sonarr_create_importlist_action',
+        'sonarr_create_importlist_test',
+        'sonarr_create_importlist_testall',
+        'sonarr_create_importlistexclusion',
+        'sonarr_delete_importlist',
+        'sonarr_delete_importlist_bulk',
+        'sonarr_delete_importlistexclusion',
+        'sonarr_delete_importlistexclusion_bulk',
+        'sonarr_get_importlist',
+        'sonarr_get_importlistexclusion',
+        'sonarr_list_importlist',
+        'sonarr_list_importlist_schema',
+        'sonarr_list_importlistexclusion',
+        'sonarr_list_importlistexclusion_paged',
+        'sonarr_update_importlist',
+        'sonarr_update_importlist_bulk',
+        'sonarr_update_importlistexclusion',
+    ),
+    "sonarr_notifications_metadata": (
+        'sonarr_create_metadata',
+        'sonarr_create_metadata_action',
+        'sonarr_create_metadata_test',
+        'sonarr_create_metadata_testall',
+        'sonarr_create_notification',
+        'sonarr_create_notification_action',
+        'sonarr_create_notification_test',
+        'sonarr_create_notification_testall',
+        'sonarr_delete_metadata',
+        'sonarr_delete_notification',
+        'sonarr_get_metadata',
+        'sonarr_get_notification',
+        'sonarr_list_metadata',
+        'sonarr_list_metadata_schema',
+        'sonarr_list_notification',
+        'sonarr_list_notification_schema',
+        'sonarr_update_metadata',
+        'sonarr_update_notification',
+    ),
+    "sonarr_download_clients": (
+        'sonarr_create_downloadclient',
+        'sonarr_create_downloadclient_action',
+        'sonarr_create_downloadclient_test',
+        'sonarr_create_downloadclient_testall',
+        'sonarr_create_remotepathmapping',
+        'sonarr_delete_downloadclient',
+        'sonarr_delete_downloadclient_bulk',
+        'sonarr_delete_remotepathmapping',
+        'sonarr_get_downloadclient',
+        'sonarr_get_remotepathmapping',
+        'sonarr_list_downloadclient',
+        'sonarr_list_downloadclient_schema',
+        'sonarr_list_remotepathmapping',
+        'sonarr_update_downloadclient',
+        'sonarr_update_downloadclient_bulk',
+        'sonarr_update_remotepathmapping',
+    ),
+    "sonarr_indexers": (
+        'sonarr_create_indexer',
+        'sonarr_create_indexer_action',
+        'sonarr_create_indexer_test',
+        'sonarr_create_indexer_testall',
+        'sonarr_delete_indexer',
+        'sonarr_delete_indexer_bulk',
+        'sonarr_get_indexer',
+        'sonarr_list_indexer',
+        'sonarr_list_indexer_schema',
+        'sonarr_update_indexer',
+        'sonarr_update_indexer_bulk',
+    ),
+    "sonarr_storage": (
+        'sonarr_create_rootfolder',
+        'sonarr_delete_rootfolder',
+        'sonarr_get_diskspace',
+        'sonarr_get_rootfolder',
+        'sonarr_list_filesystem',
+        'sonarr_list_filesystem_mediafiles',
+        'sonarr_list_filesystem_type',
+        'sonarr_list_rootfolder',
+    ),
+    "sonarr_history_blocklist": (
+        'sonarr_bulk_delete_blocklist',
+        'sonarr_delete_blocklist',
+        'sonarr_list_blocklist',
+        'sonarr_list_history',
+        'sonarr_list_history_series',
+        'sonarr_list_history_since',
+        'sonarr_mark_history_item_failed',
+    ),
+    "sonarr_queue": (
+        'sonarr_bulk_delete_queue',
+        'sonarr_delete_queue',
+        'sonarr_get_queue_details',
+        'sonarr_get_queue_status',
+        'sonarr_grab_queue_bulk',
+        'sonarr_grab_queue_item',
+        'sonarr_list_queue',
+    ),
+    "sonarr_tags": (
+        'sonarr_create_tag',
+        'sonarr_delete_tag',
+        'sonarr_get_tag',
+        'sonarr_get_tag_detail',
+        'sonarr_list_tag',
+        'sonarr_list_tag_detail',
+        'sonarr_update_tag',
+    ),
+    "sonarr_release_search": (
+        'sonarr_get_indexerflag',
+        'sonarr_list_release',
+        'sonarr_push_release',
+        'sonarr_search_releases',
+    ),
+    "sonarr_wanted": (
+        'sonarr_get_wanted_cutoff',
+        'sonarr_get_wanted_missing',
+        'sonarr_list_wanted_cutoff',
+        'sonarr_list_wanted_missing',
+    ),
+    "sonarr_calendar": (
+        'sonarr_get_calendar',
+        'sonarr_list_calendar',
+    ),
+}
 
 
 _TOOL_REGISTRY: list[dict[str, Any]] = [
@@ -2092,19 +2357,50 @@ def _tool_source(spec: dict[str, Any]) -> str:
     )
 
 
+def _op_line(name: str, fn: Any) -> str:
+    """One line of a group tool's description: signature + one-line doc."""
+    sig = ", ".join(
+        p.name if p.default is inspect.Parameter.empty else f"{p.name}={p.default!r}"
+        for p in inspect.signature(fn).parameters.values()
+    )
+    return f"- {name}({sig}) — {' '.join((fn.__doc__ or '').split())}"
+
+
+def _register_group(group: str, names: tuple[str, ...], ns: dict[str, Any], method_of: dict[str, str]) -> None:
+    """Register one dispatching tool that fans out to every endpoint function
+    named in `names`. The endpoint functions themselves are untouched -
+    they're just looked up by name instead of each becoming its own tool."""
+    fns = {n: ns[n] for n in names}
+
+    async def dispatch(operation: str, arguments: JSONObj | None = None) -> JSONVal:
+        fn = fns.get(operation)
+        if fn is None:
+            raise ToolError(f"Unknown operation {operation!r} for {group}. Valid: {', '.join(fns)}")
+        return await fn(**(arguments or {}))
+
+    dispatch.__annotations__["operation"] = Literal[names]
+    ann = READONLY if {method_of[n] for n in names} == {"GET"} else None
+    mcp.add_tool(
+        Tool.from_function(
+            dispatch,
+            name=group,
+            description=(
+                f"{group.replace('_', ' ')} operations on Sonarr. Pass `operation` and an "
+                f"`arguments` dict matching that operation's parameters.\n\n"
+                + "\n".join(_op_line(n, f) for n, f in fns.items())
+            ),
+            annotations=ann,
+        )
+    )
+
+
 def register_tools() -> None:
     src = "\n".join(_tool_source(spec) for spec in _TOOL_REGISTRY)
     ns: dict[str, Any] = {}
     exec(src, globals(), ns)
-    for spec in _TOOL_REGISTRY:
-        fn = ns[spec["name"]]
-        if spec["method"] == "GET":
-            ann = READONLY
-        elif spec["method"] == "DELETE":
-            ann = DESTRUCTIVE
-        else:
-            ann = WRITE
-        mcp.add_tool(Tool.from_function(fn, name=spec["name"], description=spec["doc"], annotations=ann))
+    method_of = {spec["name"]: spec["method"] for spec in _TOOL_REGISTRY}
+    for group, names in _GROUPS.items():
+        _register_group(group, names, ns, method_of)
 
 
 register_tools()
