@@ -1,6 +1,6 @@
 # sonarr-mcp
 
-Part of the [arr-mcps](https://github.com/SavageCore/arr-mcps) collection.
+Part of the [arr-mcps](https://github.com/arr-mcps/arr-mcps) collection.
 MCP server exposing [Sonarr](https://sonarr.tv)'s v3 REST API
 ([OpenAPI 3.0.0](https://sonarr.tv/docs/api/)) as tools, so an LLM can read
 and manage a Sonarr instance: series, episodes, episode files, the download
@@ -17,7 +17,7 @@ Generate one in Sonarr **Settings > General > Security**. Auth is the
 
 ## Install
 
-Download a wheel from the [latest release](https://github.com/SavageCore/sonarr-mcp/releases/latest)
+Download a wheel from the [latest release](https://github.com/arr-mcps/sonarr-mcp/releases/latest)
 and install it as a `uv` tool (no repo checkout needed):
 
 ```bash
@@ -107,7 +107,7 @@ make help  # list all commands
 | `make clean` | Remove build artifacts |
 
 The release workflow (`.github/workflows/release.yml`) builds and publishes to
-[Releases](https://github.com/SavageCore/sonarr-mcp/releases) whenever a `v*`
+[Releases](https://github.com/arr-mcps/sonarr-mcp/releases) whenever a `v*`
 tag is pushed - so the usual flow is `make bump-patch`, commit, then tag and
 push.
 
